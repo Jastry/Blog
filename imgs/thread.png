@@ -1,0 +1,80 @@
+#####  线程同步
+
+1. 为什么要同步
+> 当多个线程共享相同的内存时，就要确保每一个线程看到一致的数据视图。当一个线程在修改变量时，其他线程在读取该变量时就有可能出现数据的不一致问题。所以当一个线程可以修改变量，而其他线程也可以读取或修改该变量时就需要进行线程间的同步。
+
+![](/home/blb/work/Blog/imgs/pthread.png) 
+
+> 两个或多个进程在同一时间修改同一变量时，也需要同步。
+1. 从内存单元读入寄存器
+2. 在寄存器中对变量作修改
+3. 把新的值写回内存单元
+
+如果线程 A （将 g_val++）将修改变量 g_val（初始值假设为1），执行操作 1，再执行操作 2，此时线程 B 也要修改 g_val （g_val++）同样执行 1, 2 次时线程 B 读到的 g_val = 1， 而当线程 A 执行 3 后内存中的 g_val = 2，当线程 B 执行 3 后 g_val 应该为 3 但实际上 g_val 的值可能仍为 2。之前 A 对 g_val 的操作被线程 B 覆盖掉了。
+创建两个线程，每个线程打印字记得 pid 并将 g_val++ 50000 次。
+![](imgs/20180118-102429.png)
+如果修改操作是原子操作，呢么就不存在竞争，如果在前面的例子中，增 1 只需要一个时钟周期呢么就没有竞争存在。
+![3000x](/home/blb/work/Blog/imgs/thre.png) 
+
+##### 互斥量
+1. 作用
+保护数据，确保同一时间只有一个线程访问数据。`互斥量`本质上说可以当成一把锁，在对数据进行访问时加锁，访问完毕后再释放锁。类似于共享单车，用之前需要解锁，用完了需要加锁。看到锁开着证明别人在用，所以自己当前用不了。就需要等待别人用完，等待的过程称为线程阻塞，
+2. 使用
+互斥量用 pthread_mutex_t 数据类型表示，在使用之前需要对其进行初始化，可以将其设置为常量 PTHREAD_MUTEX_INITIALIZER（只适用于静态分配的互斥量），也可以通过 pthread_mutex_init 函数对其初始化，如果动态分配互斥量，需要在释放内存前调用 pthread_mutex_destroy。
+
+```c
+	#include <pthread.h>
+	int pthread_mutex_init(pthread_mutex_t *restrict mutex,
+				   const pthread_mutexattr_t *restrict attr);
+				   
+	int pthread_mutex_destroy(pthread_mutex_t *restrict mutex)
+	//两个函数成功返回0， 否则返回错误编号
+```
+restrict : 让编译器不要优化这个类型，即每次都从内存中读取该数据。因为其他的线程可能已经将该数据修改了。
+要用默认的属性初始化互斥量，只需把 attr 设置为 NULL
+
+对互斥量进行加锁和解锁函数
+```c
+	#inclide <pthread.h>
+	int pthread_mutex_lock(pthread_mutex_t *mutex);
+	int pthread_mutex_trylock(pthread_mutex_t *mutex);
+	int pthread_mutex_unlock(pthread_mutex_t *mutex);
+	//成功返回 0，失败返回错误号
+```
+如果线程不希望被阻塞，可以调用 pthread_mutex_trylock，尝试对互斥量加锁，如果互斥量处于未被锁住状态，则锁住互斥量。相反如果不能，则不会阻塞，也不能加锁，返回 EBUSY。
+[测试代码](https://github.com/Jastry/Blog/blob/master/IPC/thread/thread.c)
+
+##### 避免死锁
+1. 产生
+当线程试图对同一个互斥量加锁两次，呢么它自身就有可能陷入死锁状态；但使用互斥量时还有其他不太明显的方式也能产生死锁。例如，程序中使用一个以上的互斥量时，线程 A 拿着线程 B 等待的 lock1， 线程 B 拿着线程 A 等待的 lock2，线程 A 释放锁的条件是拿到 lock2，线程 B 释放锁的条件是拿到 lock1，此时就产生死锁。可能出现死锁的情况只会发生在一个先城市图锁住另一个线程以相反的顺序所著的互斥量。
+2. 解决方案
+先释放占有的锁，然后过一段时间再试。这种情况可以使用 pthread_mutex_trylock 接口避免死锁。如果占有某些锁并且 trylock 接口成功返回，呢么就可以继续前进。但是如果不能获取锁，可以先释放占有的锁，做好清理工作，过一段时间再重新尝试。
+[银行家算法]()
+
+##### 读写锁
+读写锁与互斥量类似，不过读写锁允许更高的并行性，互斥量要么是锁住状态要么是不加锁状态，而且一次只有一个线程可以对其加锁。读写锁可以有三种状态：读模式下的加锁状态，写模式下的加锁状态，不加锁状态。在写模式状态下一次只允许只有一个线程可以加锁，再多模式状态下，其他线程也可以加读锁。
+![](/home/blb/work/Blog/imgs/tlock.png) 
+读写锁有较共享锁，非常适用对数据结构读的次数远远大于写的次数的情况下。
+与互斥锁相比，读写锁必须在使用之前初始化，再释放他们底层内存前必须销毁。
+```c
+	#include <pthread/h>
+	int pthread_rwlock_init(pthread_rwlock_t *restrict rwlock,
+					    const pthread_rwlockattr_t *restrict attr);
+	int pthread_rwlock_destroy(pthread_rwlock_t *rwlock);
+	//成功返回 0，失败返回错误编号
+```
+读模式下用读锁 ： pthread_rwlock_rdlock
+写模式下用写锁 ： pthread_rwlock_wrlock
+无论哪种模式都用 pthread_rwlock_unlock 解锁
+```c
+	#include <pthread.h>
+	int pthread_rwlock_rdlock(pthread_rwlock_t *rwlock);
+	int pthread_rwlock_wrlock(pthread_rwlock_t *rwlock);
+	int pthread_rwlock_unlock(pthread_rwlock_t *rwlock);
+	//成功返回 0，否则返回错误编号
+```
+[测试代码](https://github.com/Jastry/Blog/blob/master/IPC/thread/rwlock.c)
+
+##### 条件变量
+1. 特点：条件变量是线程同步的另一种机制。条件变量给多个线程提供了一个会和场所。条件变量和互斥量一起使用时，允许线程以无竞争方式等待特定的条件发生。
+条件本身是由互斥量保护的。线程在改变状态之前必须先锁住互斥量。其他线程在获得互斥量之前不会察觉到这种改变
