@@ -1,5 +1,5 @@
-test : test.c
-	gcc -O3 -g -o $@ $^ 
+signal : signal.c
+	gcc -g -o $@ $^ -lpthread
 .PHONY:clean
 clean : 
-	rm -f test
+	rm -f signal
