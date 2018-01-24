@@ -1,5 +1,5 @@
+#pragma once
 #include <sys/types.h>
-#include <stdio.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -89,146 +89,15 @@ public:
             }
         }
     }
+
 private:
     /* 读缓冲区大小 */
     static const int BUFFER_SIZE = 1024;
-    int m_epollfd;
-    int m_sockfd;
+    static int m_epollfd;
+    static int m_sockfd;
     sockaddr_in m_address;
     char m_buf[BUFFER_SIZE];
 
     /* 标记读缓冲中已经读入客户数据的最后一个字节的下一个位置 */
     int m_read_idx;
 };
-
-void usage(const char * arg)
-{
-    printf("usage : \r\n%s [ip] [port]\n", arg);
-}
-
-int start_up(const char * ip, int port)
-{
-    int listenfd = socket(AF_INET, SOCK_STREAM, 0);
-    assert(listenfd >= 0);
-
-    int ret = 0;
-    struct sockaddr_in address;
-    bzero(&address, sizeof(address));
-    address.sin_family = AF_INET;
-    address.sin_port = htons( port );
-    inet_pton( AF_INET, ip, &address.sin_addr );
-
-    ret = bind( listenfd, (struct sockaddr*)&address, sizeof(address) );
-    assert( ret != -1 );
-    return listenfd;
-}
-
-int main( int argc, char * argv[] )
-{
-    if (argc != 3) {
-        usage(argv[0]);
-        return 1;
-    }
-
-    const char * ip = argv[1];
-    int port = atoi( argv[2] );
-
-    int listenfd = socket(AF_INET, SOCK_STREAM, 0);
-    assert(listenfd >= 0);
-
-    int ret = 0;
-    struct sockaddr_in address;
-    bzero(&address, sizeof(address));
-    address.sin_family = AF_INET;
-    address.sin_port = htons( port );
-    inet_pton( AF_INET, ip, &address.sin_addr );
-
-    ret = bind( listenfd, (struct sockaddr*)&address, sizeof(address) );
-    assert( ret != -1 );
-    ret = listen( listenfd, 5 );
-    assert( ret != -1 );
-
-    processpool< cgi_conn >* pool = processpool< cgi_conn >::create( listenfd );
-    if (pool) {
-        pool->run();
-        delete pool;
-    }
-    close( listenfd );
-    return 0;
-}
-
-
-# if 0
-locker lock;
-
-/*
- * 子线程运行的函数，他首先获得互斥锁，然后暂停 5s，再释放该互斥锁 
- */
-void *anther(void *arg) 
-{
-    printf("in child thread, lock the mutex\n");
-    lock.lock();
-    sleep(5);
-    lock.unlock();
-}
-
-void prepare()
-{
-    lock.lock();
-}
-
-void parent()
-{
-    lock.unlock();
-}
-
-void child()
-{
-    lock.unlock();
-}
-
-int main()
-{
-    pthread_t tid;
-    pthread_create(&tid, NULL, anther, NULL);
-   
-    /*
-     * 父进程中的主线成现暂停 1s 确保在执行 fork 之前， 
-     * 子线程已经开始运行并且拿到了互斥锁 
-     */
-
-    sleep(1);
-    pthread_atfork(prepare, parent, child);
-    int pid = fork();
-    if ( pid < 0 ) {
-        pthread_join( pid, NULL );
-        return 1;
-    } else if ( 0 == pid ) {
-        printf(" I'm child, want to get the lock\n");
-        /*
-         * 子进程从父进程中继承了互斥锁的状态，
-         * 该互斥锁处于锁住状态，这是由父进程中的子线程引起的，
-         * 因此子进程想要获取锁就会一直阻塞，尽管从逻辑上他不应该被阻塞
-         */
-        sleep(1);
-        lock.lock();
-        printf("I am child  get lock \n");
-        sleep(2);
-        lock.unlock();
-        std::cout << "I'm child I relese the lock\n";
-        exit(0);
-    } else {
-        std::cout << "I'm father I want get lock\n";
-        lock.lock();
-        std::cout << "I'm father I get lock\n";
-
-        sleep(3);
-        std::cout << "I'm father I relese the lock\n";
-        lock.unlock();
-        wait(NULL);
-    }
-
-    pthread_join(tid, NULL);
-    return 0;
-}
-#endif
